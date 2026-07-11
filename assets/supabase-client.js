@@ -2,8 +2,8 @@
 // Isi dua nilai ini dengan kredensial project Supabase kamu.
 // Ambil dari: Supabase Dashboard > Settings > API
 // ============================================================
-const SUPABASE_URL = "GANTI_DENGAN_PROJECT_URL";
-const SUPABASE_ANON_KEY = "GANTI_DENGAN_ANON_PUBLIC_KEY";
+const SUPABASE_URL = "https://svzincvhyhgiwnevihrr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_G8n6kq8i66lxk2GzosLzig_ugZunqt2";
 
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
