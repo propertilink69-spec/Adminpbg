@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — Propertylink</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <h1>Propertylink</h1>
+    <span>PBG / SLF</span>
+  </div>
+  <div class="who">
+    <span id="whoName"></span>
+    <button class="btn btn-outline btn-sm" onclick="logout()">Keluar</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="toolbar">
+    <h2>Daftar Proyek</h2>
+    <button class="btn btn-primary" id="openAddModal">+ Proyek Baru</button>
+  </div>
+
+  <div class="panel">
+    <table>
+      <thead>
+        <tr>
+          <th>Klien</th>
+          <th>Jenis</th>
+          <th>Status</th>
+          <th>Dokumen</th>
+          <th>Dibuat</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr><td colspan="5" style="color:var(--ink-muted)">Memuat data...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal tambah proyek -->
+<div class="modal-backdrop" id="modalBackdrop" style="display:none">
+  <div class="modal">
+    <h2>Proyek Baru</h2>
+    <form id="addForm">
+      <div class="field">
+        <label for="client_name">Nama Klien</label>
+        <input type="text" id="client_name" required>
+      </div>
+      <div class="field">
+        <label for="client_phone">No. Telepon</label>
+        <input type="text" id="client_phone">
+      </div>
+      <div class="field">
+        <label for="client_address">Alamat</label>
+        <input type="text" id="client_address">
+      </div>
+      <div class="field">
+        <label for="jenis">Jenis Pengajuan</label>
+        <select id="jenis" required>
+          <option value="PBG">PBG</option>
+          <option value="SLF">SLF</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="cancelAdd">Batal</button>
+        <button type="submit" class="btn btn-primary">Simpan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/supabase-client.js"></script>
+<script>
+let currentUser = null;
+
+(async () => {
+  const auth = await requireAdmin();
+  if (!auth) return;
+  currentUser = auth.session.user;
+  document.getElementById("whoName").textContent = auth.profile.full_name || auth.session.user.email;
+  await loadProjects();
+})();
+
+async function loadProjects() {
+  const tbody = document.getElementById("tableBody");
+  const { data: projects, error } = await supabaseClient
+    .from("projects")
+    .select("*, documents(id)")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--red)">Gagal memuat data: ${escapeHtml(error.message)}</td></tr>`;
+    return;
+  }
+
+  if (!projects.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--ink-muted)">Belum ada proyek. Klik "+ Proyek Baru" untuk menambahkan.</td></tr>`;
+    return;
+  }
+
+  const statusClass = { Proses: "badge-proses", Selesai: "badge-selesai", Dibatalkan: "badge-dibatalkan" };
+
+  tbody.innerHTML = projects.map(p => {
+    const docCount = p.documents ? p.documents.length : 0;
+    const total = DOC_CATEGORIES.length;
+    const tanggal = new Date(p.created_at).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+    return `
+      <tr class="row-link" onclick="window.location.href='project.html?id=${p.id}'">
+        <td><strong>${escapeHtml(p.client_name)}</strong></td>
+        <td><span class="badge badge-jenis">${escapeHtml(p.jenis)}</span></td>
+        <td><span class="badge ${statusClass[p.status] || 'badge-proses'}">${escapeHtml(p.status)}</span></td>
+        <td><span class="progress-mini">${docCount} / ${total} berkas</span></td>
+        <td>${tanggal}</td>
+      </tr>`;
+  }).join("");
+}
+
+// Modal
+const backdrop = document.getElementById("modalBackdrop");
+document.getElementById("openAddModal").addEventListener("click", () => backdrop.style.display = "flex");
+document.getElementById("cancelAdd").addEventListener("click", () => backdrop.style.display = "none");
+backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.style.display = "none"; });
+
+document.getElementById("addForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = {
+    client_name: document.getElementById("client_name").value.trim(),
+    client_phone: document.getElementById("client_phone").value.trim(),
+    client_address: document.getElementById("client_address").value.trim(),
+    jenis: document.getElementById("jenis").value,
+    created_by: currentUser.id,
+  };
+  const { data, error } = await supabaseClient.from("projects").insert(payload).select().single();
+  if (error) {
+    alert("Gagal menyimpan proyek: " + error.message);
+    return;
+  }
+  window.location.href = "project.html?id=" + data.id;
+});
+</script>
+</body>
+</html>

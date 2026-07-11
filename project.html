@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detail Proyek — Propertylink</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <h1>Propertylink</h1>
+    <span>PBG / SLF</span>
+  </div>
+  <div class="who">
+    <span id="whoName"></span>
+    <button class="btn btn-outline btn-sm" onclick="logout()">Keluar</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <a href="dashboard.html" class="back-link">&larr; Kembali ke daftar proyek</a>
+
+  <div class="panel project-head" id="projectHead">Memuat...</div>
+
+  <h2 style="margin-bottom:6px">Dokumen Pengajuan</h2>
+  <p style="color:var(--ink-muted);font-size:13px;margin-top:0 0 16px">Unggah berkas sesuai kategori. Format: JPG, PNG, PDF. Maks 10MB.</p>
+  <div class="completeness-bar" style="margin-bottom:18px"><div class="fill" id="completenessFill" style="width:0%"></div></div>
+
+  <div class="doc-grid" id="docGrid"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/supabase-client.js"></script>
+<script>
+const params = new URLSearchParams(window.location.search);
+const projectId = params.get("id");
+let currentUser = null;
+let project = null;
+
+if (!projectId) window.location.href = "dashboard.html";
+
+(async () => {
+  const auth = await requireAdmin();
+  if (!auth) return;
+  currentUser = auth.session.user;
+  document.getElementById("whoName").textContent = auth.profile.full_name || auth.session.user.email;
+  await loadProject();
+  await loadDocuments();
+})();
+
+async function loadProject() {
+  const { data, error } = await supabaseClient.from("projects").select("*").eq("id", projectId).single();
+  if (error || !data) {
+    document.getElementById("projectHead").innerHTML = `<p style="color:var(--red)">Proyek tidak ditemukan.</p>`;
+    return;
+  }
+  project = data;
+  const tanggal = new Date(data.created_at).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+  document.getElementById("projectHead").innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+      <div>
+        <h2>${escapeHtml(data.client_name)}</h2>
+        <span class="badge badge-jenis" style="margin-top:8px">${escapeHtml(data.jenis)}</span>
+      </div>
+      <select id="statusSelect" style="width:auto">
+        <option value="Proses" ${data.status === "Proses" ? "selected" : ""}>Proses</option>
+        <option value="Selesai" ${data.status === "Selesai" ? "selected" : ""}>Selesai</option>
+        <option value="Dibatalkan" ${data.status === "Dibatalkan" ? "selected" : ""}>Dibatalkan</option>
+      </select>
+    </div>
+    <div class="rows">
+      <div><label>Telepon</label><div class="val">${escapeHtml(data.client_phone || "-")}</div></div>
+      <div><label>Alamat</label><div class="val">${escapeHtml(data.client_address || "-")}</div></div>
+      <div><label>Dibuat</label><div class="val">${tanggal}</div></div>
+    </div>
+  `;
+  document.getElementById("statusSelect").addEventListener("change", async (e) => {
+    await supabaseClient.from("projects").update({ status: e.target.value }).eq("id", projectId);
+  });
+}
+
+async function loadDocuments() {
+  const { data: docs, error } = await supabaseClient
+    .from("documents").select("*").eq("project_id", projectId).order("uploaded_at", { ascending: false });
+
+  const grid = document.getElementById("docGrid");
+  if (error) {
+    grid.innerHTML = `<p style="color:var(--red)">Gagal memuat dokumen: ${escapeHtml(error.message)}</p>`;
+    return;
+  }
+
+  const byCategory = {};
+  (docs || []).forEach(d => {
+    if (!byCategory[d.category]) byCategory[d.category] = [];
+    byCategory[d.category].push(d);
+  });
+
+  const filledCount = DOC_CATEGORIES.filter(c => byCategory[c.key] && byCategory[c.key].length).length;
+  const pct = Math.round((filledCount / DOC_CATEGORIES.length) * 100);
+  document.getElementById("completenessFill").style.width = pct + "%";
+
+  grid.innerHTML = DOC_CATEGORIES.map(cat => {
+    const files = byCategory[cat.key] || [];
+    const filesHtml = files.map(f => `
+      <div class="doc-file">
+        <span class="name" title="${escapeHtml(f.file_name)}">${escapeHtml(f.file_name)}</span>
+        <div class="doc-actions">
+          <button class="btn btn-outline btn-sm" onclick="viewFile('${f.file_path}')">Lihat</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteFile('${f.id}','${f.file_path}')">Hapus</button>
+        </div>
+      </div>
+    `).join("");
+
+    return `
+      <div class="doc-card">
+        <div class="cat-label">${cat.label}</div>
+        <div class="cat-required mono">${cat.key}</div>
+        ${filesHtml || `<div class="empty-slot">Belum ada berkas</div>`}
+        <label style="margin-top:8px">
+          <input type="file" accept=".jpg,.jpeg,.png,.pdf" style="font-size:12px"
+                 onchange="uploadFile(event, '${cat.key}')">
+        </label>
+      </div>
+    `;
+  }).join("");
+}
+
+async function uploadFile(event, category) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (file.size > 10 * 1024 * 1024) {
+    alert("Ukuran file maksimal 10MB.");
+    event.target.value = "";
+    return;
+  }
+  const allowed = ["image/jpeg", "image/png", "application/pdf"];
+  if (!allowed.includes(file.type)) {
+    alert("Format file harus JPG, PNG, atau PDF.");
+    event.target.value = "";
+    return;
+  }
+
+  const path = `${projectId}/${category}/${Date.now()}_${file.name}`;
+  const { error: uploadError } = await supabaseClient.storage
+    .from("client-documents").upload(path, file);
+
+  if (uploadError) {
+    alert("Gagal mengunggah: " + uploadError.message);
+    event.target.value = "";
+    return;
+  }
+
+  const { error: insertError } = await supabaseClient.from("documents").insert({
+    project_id: projectId,
+    category,
+    file_name: file.name,
+    file_path: path,
+    uploaded_by: currentUser.id,
+  });
+
+  if (insertError) {
+    alert("Gagal menyimpan data dokumen: " + insertError.message);
+    return;
+  }
+
+  event.target.value = "";
+  await loadDocuments();
+}
+
+async function viewFile(path) {
+  const { data, error } = await supabaseClient.storage
+    .from("client-documents").createSignedUrl(path, 3600);
+  if (error) {
+    alert("Gagal membuka file: " + error.message);
+    return;
+  }
+  window.open(data.signedUrl, "_blank");
+}
+
+async function deleteFile(docId, path) {
+  if (!confirm("Hapus berkas ini?")) return;
+  await supabaseClient.storage.from("client-documents").remove([path]);
+  await supabaseClient.from("documents").delete().eq("id", docId);
+  await loadDocuments();
+}
+</script>
+</body>
+</html>
