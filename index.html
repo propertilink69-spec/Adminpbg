@@ -66,27 +66,40 @@
     const email = document.getElementById("email").value.trim();
     const password = document.getElementById("password").value;
 
-    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
 
-    if (error) {
-      showError("Email atau kata sandi salah.");
+      if (error) {
+        showError("Email atau kata sandi salah. (" + error.message + ")");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Masuk";
+        return;
+      }
+
+      const { data: profile, error: profErr } = await supabaseClient
+        .from("profiles").select("role").eq("id", data.user.id).single();
+
+      if (profErr) {
+        showError("Login berhasil, tapi gagal membaca data profil: " + profErr.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Masuk";
+        return;
+      }
+
+      if (!profile || profile.role !== "admin") {
+        await supabaseClient.auth.signOut();
+        showError("Akun ini tidak memiliki akses admin.");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Masuk";
+        return;
+      }
+
+      window.location.href = "dashboard.html";
+    } catch (err) {
+      showError("Terjadi kesalahan koneksi: " + err.message + ". Cek apakah SUPABASE_URL dan SUPABASE_ANON_KEY di assets/supabase-client.js sudah benar.");
       submitBtn.disabled = false;
       submitBtn.textContent = "Masuk";
-      return;
     }
-
-    const { data: profile, error: profErr } = await supabaseClient
-      .from("profiles").select("role").eq("id", data.user.id).single();
-
-    if (profErr || !profile || profile.role !== "admin") {
-      await supabaseClient.auth.signOut();
-      showError("Akun ini tidak memiliki akses admin.");
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Masuk";
-      return;
-    }
-
-    window.location.href = "dashboard.html";
   });
 </script>
 </body>
